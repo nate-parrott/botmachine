@@ -4,21 +4,23 @@ import null_phrase
 import parse_example
 import random
 import commanding
+import re
 
 SUBSEQUENT_MESSAGE_BONUS = 10
 INITIAL_MESSAGE_BONUS = 7
+NULL_BONUS = 11
+MISSING_FIELDS_BONUS = 0.5
 
 def chain(lists):
     return reduce(lambda a,b: a+b, lists, [])
 
 class Bot(object):
-    def __init__(self):
+    def __init__(self, json_docs):
         self.initial_message_templates = []
         self.message_templates = {}
-    
-    def load_json(self, j):
-        for t in j['transcripts']:
-            self.load_message_thread(t['messages'], True, [])
+        for doc in json_docs:
+            for t in doc['transcripts']:
+                self.load_message_thread(t['messages'], True, [])
     
     def load_message_thread(self, thread, assume_sender_is_user, parent_messages):
         for item in thread:
@@ -62,6 +64,7 @@ class Bot(object):
     def parse_message(self, convo, text, sender):
         # create message-matching bonuses:
         intent_bonuses = {}
+        intent_bonuses[''] = NULL_BONUS
         for template in self.initial_message_templates:
             intent_bonuses[template.id] = INITIAL_MESSAGE_BONUS
         
@@ -70,6 +73,13 @@ class Bot(object):
         if len(prompt_messages) > 0:
             for child in prompt_messages[-1].template.children:
                 intent_bonuses[child.id] = SUBSEQUENT_MESSAGE_BONUS
+        
+        # apply penalty to parses that have fields that aren't currently present:
+        fields = self.fields_from_convo(convo)
+        for template in self.message_templates.itervalues():
+            missing_fields = [field for field in template.required_fields() if field not in fields]
+            if len(missing_fields) > 0:
+                intent_bonuses[template.id] = MISSING_FIELDS_BONUS ** len(missing_fields)
         
         allowed_intents = set((template.id for template in self.message_templates.itervalues() if template.sender == sender))
         allowed_intents.add('')
@@ -87,14 +97,41 @@ class Bot(object):
     def respond(self, convo):
         # todo: support scenarios where the bot talks first
         template = convo[-1].template
-        response_templates = template.children
-        examples = chain((t.examples for t in response_templates))
+        if template:
+            # score responses:
+            fields_present = set(self.fields_from_convo(convo).keys())
+            response_templates = template.children
+            def score_response(response):
+                unfilled_fields = response.fields_to_fill() - fields_present
+                return -len(unfilled_fields)
+            # select all the highest-scoring responses, and collect all their examples:
+            best_score = max(map(score_response, response_templates))
+            response_templates = [t for t in response_templates if score_response(t) == best_score]
+            examples = chain((t.examples for t in response_templates))
+        else:
+            examples = []
         if len(examples):
             response_example = random.choice(examples)
             response_template = self.message_templates[response_example.intent]
-            return [ParsedMessage(response_example.text(), "bot", response_example, response_template)]
+            text = self.fill_in_fields(response_example.text(), convo)
+            return [ParsedMessage(text, "bot", response_example, response_template)]
         else:
             return [ParsedMessage("I don't understand", "bot", None, None)]
+    
+    def fill_in_fields(self, text, convo):
+        fields = self.fields_from_convo(convo)
+        def fill(m):
+            field_name = m.group(1)
+            return fields.get(field_name, u"?{0}?".format(field_name.upper()))
+        return re.sub(r"\<(\S+?)\>", fill, text)
+    
+    def fields_from_convo(self, convo):
+        fields = {}
+        for message in convo:
+            if message.parse and message.sender != 'bot':
+                for k,v in message.parse.tags().iteritems():
+                    fields[k] = v
+        return fields
 
 _last_message_id = 0
 
@@ -113,6 +150,17 @@ class TemplateMessage(object):
         parent.children.append(self)
         self.parents.append(parent)
     
+    def required_fields(self):
+        # the fields that the user has sent us by now
+        def intersection_of_sets(sets): return reduce(lambda a,b: a & b, sets, set())
+        reqs = intersection_of_sets([p.required_fields() for p in self.parents])
+        if self.sender != 'bot':
+            reqs = reqs | intersection_of_sets([set(e.tags().keys()) for e in self.examples])
+        return reqs
+    
+    def fields_to_fill(self):
+        return set(m.group(1) for m in re.finditer(r"\<(\S+?)\>", self.text))
+    
     def __repr__(self):
         return u"TemplateMessage({0})".format(self.text)
 
@@ -127,6 +175,5 @@ class ParsedMessage(object):
         return u"ParsedMessage({0}: {1} -- {2})".format(self.sender, self.parse, self.template)
 
 if __name__ == '__main__':
-    b = Bot()
-    b.load_json(json.load(open('polite.json')))
+    b = Bot([json.load(open('polite.json'))])
     b.interact()

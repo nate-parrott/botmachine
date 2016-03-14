@@ -44,6 +44,23 @@
 					]
 				}
 			]
+		},
+		{
+			"messages": [
+				{"sender": "user", "text": "hi there, i'm ~name(nate)"},
+				{"text": "Hi there <~name>!"}
+			]
+		},
+		{
+			"messages": [
+				{"sender": "user", "text": "what's your name?"},
+				{
+					"branches": [
+						{"messages": [{"text": "My name is botmachine. Go figure."}]},
+						{"messages": [{"text": "Botmachine. Yeah, really."}]}
+					]
+				}
+			]
 		}
 	]
 }
