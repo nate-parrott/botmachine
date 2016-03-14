@@ -1,0 +1,82 @@
+{
+	"addon_module": "weather_addon",
+	"transcripts": [
+		{
+			"messages": [
+				{
+					"text": "what's the weather"
+				},
+				{
+					"text": "",
+					"code": "weather"
+				}
+			]
+		},
+		{
+			"messages": [
+				{
+					"text": "weather forecast"
+				},
+				{
+					"text": "",
+					"code": "weather"
+				}
+			]
+		},
+		{
+			"messages": [
+				{
+					"text": "weather forcast for location(providence, ri)"
+				},
+				{
+					"text": "",
+					"code": "weather"
+				}
+			]
+		},
+		{
+			"messages": [
+				{
+					"text": "how's the weather in location(new york city)"
+				},
+				{
+					"text": "",
+					"code": "weather"
+				}
+			]
+		},
+		{
+			"messages": [
+				{
+					"text": "how's the weather?"
+				},
+				{
+					"text": "",
+					"code": "weather"
+				}
+			]
+		},
+		{
+			"messages": [
+				{
+					"text": "how's the weather in location(boston) ?"
+				},
+				{
+					"text": "",
+					"code": "weather"
+				}
+			]
+		},
+		{
+			"messages": [
+				{
+					"text": "location(boston) weather"
+				},
+				{
+					"text": "",
+					"code": "weather"
+				}
+			]
+		}
+	]
+}

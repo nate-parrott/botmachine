@@ -5,6 +5,8 @@ import parse_example
 import random
 import commanding
 import re
+from termcolor import colored
+import importlib
 
 SUBSEQUENT_MESSAGE_BONUS = 10
 INITIAL_MESSAGE_BONUS = 7
@@ -19,14 +21,20 @@ class Bot(object):
         self.initial_message_templates = []
         self.message_templates = {}
         for doc in json_docs:
+            if 'addon_module' in doc:
+                self._current_addon = importlib.import_module(doc['addon_module']).Addon()
             for t in doc['transcripts']:
                 self.load_message_thread(t['messages'], True, [])
+            self._current_addon = None
     
     def load_message_thread(self, thread, assume_sender_is_user, parent_messages):
         for item in thread:
             if 'text' in item:            
                 sender = item.get('sender', 'user' if assume_sender_is_user else 'bot')
-                template_msg = TemplateMessage(item['text'], sender)
+                run_function = None
+                if 'code' in item:
+                    run_function = getattr(self._current_addon, item['code'])
+                template_msg = TemplateMessage(item['text'], sender, run_function)
                 self.message_templates[template_msg.id] = template_msg
                 
                 if len(parent_messages) == 0:
@@ -58,7 +66,7 @@ class Bot(object):
             # print " Other examples of this:", u"|".join([x.text() for x in self.examples_for_message_ids[parse.message_id]])
             responses = self.respond(convo)
             for resp in responses:
-                print resp.text
+                print colored(resp.text, 'blue')
             convo += responses
     
     def parse_message(self, convo, text, sender):
@@ -97,6 +105,8 @@ class Bot(object):
     def respond(self, convo):
         # todo: support scenarios where the bot talks first
         template = convo[-1].template
+        response_template = None
+        
         if template:
             # score responses:
             fields_present = set(self.fields_from_convo(convo).keys())
@@ -109,14 +119,16 @@ class Bot(object):
             # select all the highest-scoring responses, and collect all their examples:
             best_score = max(map(score_response, response_templates))
             response_templates = [t for t in response_templates if score_response(t) == best_score]
-            examples = chain((t.examples for t in response_templates))
-        else:
-            examples = []
-        if len(examples):
-            response_example = random.choice(examples)
-            response_template = self.message_templates[response_example.intent]
-            text = self.fill_in_fields(response_example.text(), convo)
-            return [ParsedMessage(text, "bot", response_example, response_template)]
+            response_template = random.choice(response_templates)
+        
+        if response_template:
+            if response_template.run_function:
+                response = response_template.run_function(self.fields_from_convo(convo))
+                return [ParsedMessage(response, "bot", None, response_template)]
+            else:
+                response_example = random.choice(response_template.examples)
+                text = self.fill_in_fields(response_example.text(), convo)
+                return [ParsedMessage(text, "bot", response_example, response_template)]
         else:
             return [ParsedMessage("I don't understand", "bot", None, None)]
     
@@ -138,11 +150,12 @@ class Bot(object):
 _last_message_id = 0
 
 class TemplateMessage(object):
-    def __init__(self, text, sender):
+    def __init__(self, text, sender, run_function=None):
         self.text = text
         self.sender = sender
         self.parents = []
         self.children = []
+        self.run_function = run_function
         global _last_message_id
         self.id = str(_last_message_id + 1)
         _last_message_id += 1
@@ -177,5 +190,6 @@ class ParsedMessage(object):
         return u"ParsedMessage({0}: {1} -- {2})".format(self.sender, self.parse, self.template)
 
 if __name__ == '__main__':
-    b = Bot([json.load(open('polite.json'))])
+    files = ['polite.json', 'weather_addon.json']
+    b = Bot([json.load(open(filename)) for filename in files])
     b.interact()

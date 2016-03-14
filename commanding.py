@@ -21,7 +21,7 @@ class ProbabilityCounter(object):
     def __repr__(self):
       return str(dict(self.iteritems()))
 
-SMOOTHING = 0.000001
+SMOOTHING = 0.00001
 FREE_TEXT_PROB = 0.0001
 
 def smooth_log_prob(p):
