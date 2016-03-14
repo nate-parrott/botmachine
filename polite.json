@@ -8,6 +8,15 @@
 		},
 		{
 			"messages": [
+				{"sender": "user", "text": "good morning"},
+				{"branches": [
+					{"messages": [{"text": "good morning!"}]},
+					{"messages": [{"text": "good morning, <~name> !"}]}
+				]}
+			]
+		},
+		{
+			"messages": [
 				{"sender": "user", "text": "What's up?"},
 				{"sender": "bot", "text": "Nothing much. You?"},
 				{"sender": "user", "text": "Nothing much"},

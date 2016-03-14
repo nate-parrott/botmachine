@@ -102,8 +102,10 @@ class Bot(object):
             fields_present = set(self.fields_from_convo(convo).keys())
             response_templates = template.children
             def score_response(response):
-                unfilled_fields = response.fields_to_fill() - fields_present
-                return -len(unfilled_fields)
+                fields_to_fill = response.fields_to_fill()
+                unfilled_fields = fields_to_fill - fields_present
+                filled_fields = fields_to_fill & fields_present
+                return -len(unfilled_fields), len(filled_fields)
             # select all the highest-scoring responses, and collect all their examples:
             best_score = max(map(score_response, response_templates))
             response_templates = [t for t in response_templates if score_response(t) == best_score]
