@@ -8,11 +8,17 @@
 		},
 		{
 			"messages": [
+				{"text": "hi"},
+				{"text": "hi!"}
+			]
+		},
+		{
+			"messages": [
 				{"sender": "user", "text": "good morning"},
-				{"branches": [
+				[
 					{"messages": [{"text": "good morning!"}]},
-					{"messages": [{"text": "good morning, <~name> !"}]}
-				]}
+					{"messages": [{"text": "good morning, ~name(name) !"}]}
+				]
 			]
 		},
 		{
@@ -26,49 +32,43 @@
 		{
 			"messages": [
 				{"sender": "user", "text": "How are you?"},
-				{
-					"branches": [
-						{
-							"messages": [{"sender": "bot", "text": "I'm alright."}]
-						},
-						{
-							"messages": [{"sender": "bot", "text": "I'm great! How about you?"}]
-						}
-					]
-				}
+				[
+										{
+											"messages": [{"sender": "bot", "text": "I'm alright."}]
+										},
+										{
+											"messages": [{"sender": "bot", "text": "I'm great! How about you?"}]
+										}
+									]
 			]
 		},
 		{
 			"messages": [
 				{"sender": "user", "text": "how's it going?"},
 				{"text": "Great! How are you?"},
-				{
-					"branches": [
-						{
-							"messages": [{"text": "i'm good"}, {"text": "great! me too."}]
-						},
-						{
-							"messages": [{"text": "i'm bad"}, {"text": "Sorry to hear that!"}]
-						}
-					]
-				}
+				[
+										{
+											"messages": [{"text": "i'm good"}, {"text": "great! me too."}]
+										},
+										{
+											"messages": [{"text": "i'm bad"}, {"text": "Sorry to hear that!"}]
+										}
+									]
 			]
 		},
 		{
 			"messages": [
 				{"sender": "user", "text": "hi there, i'm ~name(nate)"},
-				{"text": "Hi there <~name>!"}
+				{"text": "Hi there ~name(nate) !"}
 			]
 		},
 		{
 			"messages": [
 				{"sender": "user", "text": "what's your name?"},
-				{
-					"branches": [
-						{"messages": [{"text": "My name is botmachine. Go figure."}]},
-						{"messages": [{"text": "Botmachine. Yeah, really."}]}
-					]
-				}
+				[
+										{"messages": [{"text": "My name is botmachine. Go figure."}]},
+										{"messages": [{"text": "Botmachine. Yeah, really."}]}
+									]
 			]
 		}
 	]

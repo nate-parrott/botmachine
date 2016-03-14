@@ -2,6 +2,7 @@ from collections import defaultdict
 import math
 import re
 import unicodedata
+import copy
 
 class ProbabilityCounter(object):
     def __init__(self):
@@ -91,10 +92,21 @@ class Phrase(object):
         parts = []
         for item in self.items:
             if isinstance(item, list):
-                parts.append(list[1])
+                parts.append(item[1])
             else:
                 parts.append(item)
         return u" ".join(parts)
+    
+    def fill_in_fields(self, fields):
+        p = copy.deepcopy(self)
+        def process_item(item):
+            if isinstance(item, list):
+                field = item[0]
+                return [field, fields.get(field, u"?{0}?".format(field))]
+            else:
+                return item
+        p.items = map(process_item, p.items)
+        return p
 
 def flatten(list_of_lists):
     return reduce(lambda a, b: a+b, list_of_lists, [])

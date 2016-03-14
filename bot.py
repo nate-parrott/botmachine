@@ -29,12 +29,20 @@ class Bot(object):
     
     def load_message_thread(self, thread, assume_sender_is_user, parent_messages):
         for item in thread:
-            if 'text' in item:            
+            if isinstance(item, list):
+                # branch:
+                final_messages = []
+                for branch in item:
+                    outbound_messages, outbound_assume_sender_is_user = self.load_message_thread(branch['messages'], assume_sender_is_user, parent_messages)
+                    final_messages += outbound_messages
+                    assume_sender_is_user = outbound_assume_sender_is_user
+                parent_messages = final_messages
+            else:            
                 sender = item.get('sender', 'user' if assume_sender_is_user else 'bot')
                 run_function = None
                 if 'code' in item:
                     run_function = getattr(self._current_addon, item['code'])
-                template_msg = TemplateMessage(item['text'], sender, run_function)
+                template_msg = TemplateMessage(item.get('text', ''), sender, run_function)
                 self.message_templates[template_msg.id] = template_msg
                 
                 if len(parent_messages) == 0:
@@ -45,13 +53,6 @@ class Bot(object):
                             
                 assume_sender_is_user = sender != 'user'  
                 parent_messages = [template_msg]
-            elif 'branches' in item:
-                final_messages = []
-                for branch in item['branches']:
-                    outbound_messages, outbound_assume_sender_is_user = self.load_message_thread(branch['messages'], assume_sender_is_user, parent_messages)
-                    final_messages += outbound_messages
-                    assume_sender_is_user = outbound_assume_sender_is_user
-                parent_messages = final_messages
         
         return parent_messages, assume_sender_is_user
     
@@ -122,27 +123,24 @@ class Bot(object):
             response_template = random.choice(response_templates)
         
         if response_template:
+            fields = self.fields_from_convo(convo)
             if response_template.run_function:
-                response = response_template.run_function(self.fields_from_convo(convo))
-                return [ParsedMessage(response, "bot", None, response_template)]
-            else:
-                response_example = random.choice(response_template.examples)
-                text = self.fill_in_fields(response_example.text(), convo)
-                return [ParsedMessage(text, "bot", response_example, response_template)]
+                child_idx, additional_fields = response_template.run_function(fields)
+                for k,v in additional_fields.iteritems():
+                    fields[k] = v
+                response_template = response_template.children[child_idx]
+            
+            response_example = random.choice(response_template.examples)
+            response_filled = response_example.fill_in_fields(fields)
+            text = response_filled.text()
+            return [ParsedMessage(text, "bot", response_filled, response_template)]
         else:
             return [ParsedMessage("I don't understand", "bot", None, None)]
-    
-    def fill_in_fields(self, text, convo):
-        fields = self.fields_from_convo(convo)
-        def fill(m):
-            field_name = m.group(1)
-            return fields.get(field_name, u"?{0}?".format(field_name.upper()))
-        return re.sub(r"\<(\S+?)\>", fill, text)
     
     def fields_from_convo(self, convo):
         fields = {}
         for message in convo:
-            if message.parse and message.sender != 'bot':
+            if message.parse:
                 for k,v in message.parse.tags().iteritems():
                     fields[k] = v
         return fields
@@ -174,7 +172,7 @@ class TemplateMessage(object):
         return reqs
     
     def fields_to_fill(self):
-        return set(m.group(1) for m in re.finditer(r"\<(\S+?)\>", self.text))
+        return set(self.examples[0].tags().iterkeys())
     
     def __repr__(self):
         return u"TemplateMessage({0})".format(self.text)

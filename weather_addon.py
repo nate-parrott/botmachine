@@ -1,7 +1,8 @@
+from addon import Addon
 
 class Addon(object):
     def weather(self, fields):
         if 'location' in fields:
-            return u"weather in {0} is 59 degrees and sunny".format(fields['location'])
+            return 0, {"weather_conditions": "sunny", "temperature": "59"}
         else:
-            return u"I don't know where you are."
+            return 1, {}

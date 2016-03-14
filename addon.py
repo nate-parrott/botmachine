@@ -1,0 +1,5 @@
+
+
+class Addon(object):
+    pass
+
