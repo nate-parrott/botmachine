@@ -1,0 +1,14 @@
+{
+	"transcripts": [
+		{
+			"messages": [
+				{"sender": "user", "text": "where am i?"},
+				{"if_missing_field": "location", "messages": [
+					{"text": "where are you?"},
+					[{"messages": [{"text": "I'm at the location(lower east side)"}]}, {"messages": [{"text": "in location(brooklyn)"}]}, {"messages": [{"text": "location(park slope)"}]}]
+				]},
+				{"sender": "user", "text": "You're in location(college hill) !"}
+			]
+		}
+	]
+}

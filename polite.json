@@ -52,6 +52,9 @@
 										},
 										{
 											"messages": [{"text": "i'm bad"}, {"text": "Sorry to hear that!"}]
+										},
+										{
+											"messages": [{"text": "i'm sad"}, {"text": "Sorry!"}]
 										}
 									]
 			]

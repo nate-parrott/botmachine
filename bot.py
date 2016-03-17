@@ -27,22 +27,27 @@ class Bot(object):
                 self.load_message_thread(t['messages'], True, [])
             self._current_addon = None
     
-    def load_message_thread(self, thread, assume_sender_is_user, parent_messages):
+    def load_message_thread(self, thread, assume_sender_is_user, parent_messages, only_enter_if_missing_field=None):
         for item in thread:
             if isinstance(item, list):
                 # branch:
                 final_messages = []
                 for branch in item:
-                    outbound_messages, outbound_assume_sender_is_user = self.load_message_thread(branch['messages'], assume_sender_is_user, parent_messages)
+                    outbound_messages, outbound_assume_sender_is_user = self.load_message_thread(branch['messages'], assume_sender_is_user, parent_messages, only_enter_if_missing_field)
                     final_messages += outbound_messages
                     assume_sender_is_user = outbound_assume_sender_is_user
                 parent_messages = final_messages
+                only_enter_if_missing_field = None
+            elif 'if_missing_field' in item:
+                branch_parent_messages, _ = self.load_message_thread(item['messages'], assume_sender_is_user, parent_messages, only_enter_if_missing_field=item['if_missing_field'])
+                parent_messages += branch_parent_messages
             else:            
                 sender = item.get('sender', 'user' if assume_sender_is_user else 'bot')
                 run_function = None
                 if 'code' in item:
                     run_function = getattr(self._current_addon, item['code'])
                 template_msg = TemplateMessage(item.get('text', ''), sender, run_function)
+                template_msg.only_enter_if_missing_field = only_enter_if_missing_field
                 self.message_templates[template_msg.id] = template_msg
                 
                 if len(parent_messages) == 0:
@@ -53,6 +58,7 @@ class Bot(object):
                             
                 assume_sender_is_user = sender != 'user'  
                 parent_messages = [template_msg]
+                only_enter_if_missing_field = None
         
         return parent_messages, assume_sender_is_user
     
@@ -81,7 +87,7 @@ class Bot(object):
         # which message is this in response to? it's the most recent parseable message with a different sender
         prompt_messages = [m for m in convo if m.parse and m.sender != sender]
         if len(prompt_messages) > 0:
-            for child in prompt_messages[-1].template.children:
+            for child in prompt_messages[-1].template.applicable_children(self, convo):
                 intent_bonuses[child.id] = SUBSEQUENT_MESSAGE_BONUS
         
         # apply penalty to parses that have fields that aren't currently present:
@@ -165,11 +171,26 @@ class TemplateMessage(object):
         self.sender = sender
         self.parents = []
         self.children = []
+        self.only_enter_if_missing_field = None
         self.run_function = run_function
         global _last_message_id
         self.id = str(_last_message_id + 1)
         _last_message_id += 1
         self.examples = [parse_example.parse_example_to_phrase(self.id, text)]
+    
+    def applicable_children(self, bot, convo):
+        fields = bot.fields_from_convo(convo)
+        children_targeted_towards_missing_fields = []
+        untargeted = []
+        for child in self.children:
+            if child.only_enter_if_missing_field and child.only_enter_if_missing_field not in fields:
+                children_targeted_towards_missing_fields.append(child)
+            else:
+                untargeted.append(child)
+        if children_targeted_towards_missing_fields:
+            return children_targeted_towards_missing_fields
+        else:
+            return untargeted
     
     def add_parent(self, parent):
         parent.children.append(self)
@@ -200,6 +221,6 @@ class ParsedMessage(object):
         return u"ParsedMessage({0}: {1} -- {2})".format(self.sender, self.parse, self.template)
 
 if __name__ == '__main__':
-    files = ['polite.json', 'weather_addon.json']
+    files = ['polite.json', 'weather_addon.json', 'if_missing_fields.json']
     b = Bot([json.load(open(filename)) for filename in files])
     b.interact()
