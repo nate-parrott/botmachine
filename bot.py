@@ -64,11 +64,12 @@ class Bot(object):
             parse = self.parse_message(convo, text, 'user')
             convo.append(parse)
             print "Parsed as:", parse
+            convo_len = len(convo)
             # print " Other examples of this:", u"|".join([x.text() for x in self.examples_for_message_ids[parse.message_id]])
-            responses = self.respond(convo)
-            for resp in responses:
-                print colored(resp.text, 'blue')
-            convo += responses
+            convo = self.respond(convo)
+            for message in convo[convo_len:]:
+                color = 'blue' if message.sender == 'bot' else 'red'
+                print colored(message.text, color)
     
     def parse_message(self, convo, text, sender):
         # create message-matching bonuses:
@@ -104,38 +105,43 @@ class Bot(object):
         return msg
     
     def respond(self, convo):
-        # todo: support scenarios where the bot talks first
-        template = convo[-1].template
-        response_template = None
+        convo = convo[:]
         
-        if template:
-            # score responses:
-            fields_present = set(self.fields_from_convo(convo).keys())
-            response_templates = template.children
-            def score_response(response):
-                fields_to_fill = response.fields_to_fill()
-                unfilled_fields = fields_to_fill - fields_present
-                filled_fields = fields_to_fill & fields_present
-                return -len(unfilled_fields), len(filled_fields)
-            # select all the highest-scoring responses, and collect all their examples:
-            best_score = max(map(score_response, response_templates))
-            response_templates = [t for t in response_templates if score_response(t) == best_score]
-            response_template = random.choice(response_templates)
+        while convo[-1].sender != 'bot':
+            # todo: support scenarios where the bot talks first
+            template = convo[-1].template
+            response_template = None
         
-        if response_template:
-            fields = self.fields_from_convo(convo)
-            if response_template.run_function:
-                child_idx, additional_fields = response_template.run_function(fields)
-                for k,v in additional_fields.iteritems():
-                    fields[k] = v
-                response_template = response_template.children[child_idx]
+            if template:
+                # score responses:
+                fields_present = set(self.fields_from_convo(convo).keys())
+                response_templates = template.children
+                def score_response(response):
+                    fields_to_fill = response.fields_to_fill()
+                    unfilled_fields = fields_to_fill - fields_present
+                    filled_fields = fields_to_fill & fields_present
+                    return -len(unfilled_fields), len(filled_fields)
+                # select all the highest-scoring responses, and collect all their examples:
+                best_score = max(map(score_response, response_templates))
+                response_templates = [t for t in response_templates if score_response(t) == best_score]
+                response_template = random.choice(response_templates)
+        
+            if response_template:
+                fields = self.fields_from_convo(convo)
+                if response_template.run_function:
+                    child_idx, additional_fields = response_template.run_function(fields)
+                    for k,v in additional_fields.iteritems():
+                        fields[k] = v
+                    response_template = response_template.children[child_idx]
             
-            response_example = random.choice(response_template.examples)
-            response_filled = response_example.fill_in_fields(fields)
-            text = response_filled.text()
-            return [ParsedMessage(text, "bot", response_filled, response_template)]
-        else:
-            return [ParsedMessage("I don't understand", "bot", None, None)]
+                response_example = random.choice(response_template.examples)
+                response_filled = response_example.fill_in_fields(fields)
+                text = response_filled.text()
+                convo.append(ParsedMessage(text, "bot", response_filled, response_template))
+            else:
+                convo.append(ParsedMessage("I don't understand", "bot", None, None))
+        
+        return convo
     
     def fields_from_convo(self, convo):
         fields = {}
@@ -144,6 +150,12 @@ class Bot(object):
                 for k,v in message.parse.tags().iteritems():
                     fields[k] = v
         return fields
+    
+    def bot_with_name(self, name):
+        if name == 'weather':
+            files = ['weather_addon.json']
+            b = Bot([json.load(open(filename)) for filename in files])
+            return b
 
 _last_message_id = 0
 
