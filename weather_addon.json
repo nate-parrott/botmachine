@@ -5,6 +5,7 @@
 			"messages": [
 				[
 					{"messages": [{"text": "weather forecast"}]},
+					{"messages": [{"text": "how's the weather?"}]},
 					{"messages": [{"text": "what's the weather"}]},
 					{"messages": [{"text": "weather in location(providence, ri)"}]},
 					{"messages": [{"text": "location(new york city) weather"}]},
