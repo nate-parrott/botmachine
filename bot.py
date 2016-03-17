@@ -27,16 +27,16 @@ class Bot(object):
                 self.load_message_thread(t['messages'], True, [])
             self._current_addon = None
     
-    def load_message_thread(self, thread, assume_sender_is_user, conditional_parent_messages):
+    def load_message_thread(self, thread, assume_sender_is_user, parent_messages):
         for item in thread:
             if isinstance(item, list):
                 # branch:
-                final_conditional_messages = []
+                final_messages = []
                 for branch in item:
-                    conditional_outbound_messages, outbound_assume_sender_is_user = self.load_message_thread(branch['messages'], assume_sender_is_user, conditional_parent_messages)
-                    final_conditional_messages += conditional_outbound_messages
+                    outbound_messages, outbound_assume_sender_is_user = self.load_message_thread(branch['messages'], assume_sender_is_user, parent_messages)
+                    final_messages += outbound_messages
                     assume_sender_is_user = outbound_assume_sender_is_user
-                conditional_parent_messages = final_conditional_messages
+                parent_messages = final_messages
             else:            
                 sender = item.get('sender', 'user' if assume_sender_is_user else 'bot')
                 run_function = None
@@ -45,16 +45,16 @@ class Bot(object):
                 template_msg = TemplateMessage(item.get('text', ''), sender, run_function)
                 self.message_templates[template_msg.id] = template_msg
                 
-                if len(conditional_parent_messages) == 0:
+                if len(parent_messages) == 0:
                     self.initial_message_templates.append(template_msg)
                 else:
-                    for condition, parent in conditional_parent_messages:
-                        template_msg.add_parent(parent, condition=condition)
+                    for parent in parent_messages:
+                        template_msg.add_parent(parent)
                             
                 assume_sender_is_user = sender != 'user'  
-                conditional_parent_messages = [(None, template_msg)]
+                parent_messages = [template_msg]
         
-        return conditional_parent_messages, assume_sender_is_user
+        return parent_messages, assume_sender_is_user
     
     def interact(self):
         convo = []
@@ -209,6 +209,6 @@ class ParsedMessage(object):
 
 if __name__ == '__main__':
     files = ['polite.json', 'weather_addon.json']
-    # files = ['polite.json', 'whereami.json']
+    # files = ['polite.json', 'weather_addon.json', 'whereami.json']
     b = Bot([json.load(open(filename)) for filename in files])
     b.interact()
