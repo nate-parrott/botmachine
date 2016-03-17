@@ -81,9 +81,8 @@ class Bot(object):
         # which message is this in response to? it's the most recent parseable message with a different sender
         prompt_messages = [m for m in convo if m.parse and m.sender != sender]
         if len(prompt_messages) > 0:
-            for condition, child in prompt_messages[-1].template.conditional_children:
-                if self.convo_meets_condition(convo, condition):
-                    intent_bonuses[child.id] = SUBSEQUENT_MESSAGE_BONUS
+            for child in prompt_messages[-1].template.children:
+                intent_bonuses[child.id] = SUBSEQUENT_MESSAGE_BONUS
         
         # apply penalty to parses that have fields that aren't currently present:
         fields = self.fields_from_convo(convo)
@@ -108,42 +107,39 @@ class Bot(object):
     def respond(self, convo):
         convo = convo[:]
         
-        while convo[-1].sender != 'bot' or convo[-1].text[0] == '@':
-            if convo[-1].text[0] == '@':
-                pass
+        while convo[-1].sender != 'bot':
+            # todo: support scenarios where the bot talks first
+            template = convo[-1].template
+            response_template = None
+        
+            if template:
+                # score responses:
+                fields_present = set(self.fields_from_convo(convo).keys())
+                response_templates = template.children
+                def score_response(response):
+                    fields_to_fill = response.fields_to_fill()
+                    unfilled_fields = fields_to_fill - fields_present
+                    filled_fields = fields_to_fill & fields_present
+                    return -len(unfilled_fields), len(filled_fields)
+                # select all the highest-scoring responses, and collect all their examples:
+                best_score = max(map(score_response, response_templates))
+                response_templates = [t for t in response_templates if score_response(t) == best_score]
+                response_template = random.choice(response_templates)
+        
+            if response_template:
+                fields = self.fields_from_convo(convo)
+                if response_template.run_function:
+                    child_idx, additional_fields = response_template.run_function(fields)
+                    for k,v in additional_fields.iteritems():
+                        fields[k] = v
+                    response_template = response_template.children[child_idx]
+            
+                response_example = random.choice(response_template.examples)
+                response_filled = response_example.fill_in_fields(fields)
+                text = response_filled.text()
+                convo.append(ParsedMessage(text, "bot", response_filled, response_template))
             else:
-                # todo: support scenarios where the bot talks first
-                template = convo[-1].template
-                response_template = None
-        
-                if template:
-                    # score responses:
-                    fields_present = set(self.fields_from_convo(convo).keys())
-                    response_templates = [child for condition, child in template.conditional_children if self.convo_meets_condition(convo, condition)]
-                    def score_response(response):
-                        fields_to_fill = response.fields_to_fill()
-                        unfilled_fields = fields_to_fill - fields_present
-                        filled_fields = fields_to_fill & fields_present
-                        return -len(unfilled_fields), len(filled_fields)
-                    # select all the highest-scoring responses, and collect all their examples:
-                    best_score = max(map(score_response, response_templates))
-                    response_templates = [t for t in response_templates if score_response(t) == best_score]
-                    response_template = random.choice(response_templates)
-        
-                if response_template:
-                    fields = self.fields_from_convo(convo)
-                    if response_template.run_function:
-                        child_idx, additional_fields = response_template.run_function(fields)
-                        for k,v in additional_fields.iteritems():
-                            fields[k] = v
-                        response_template = response_template.conditional_children[child_idx][1]
-                    
-                    response_example = random.choice(response_template.examples)
-                    response_filled = response_example.fill_in_fields(fields)
-                    text = response_filled.text()
-                    convo.append(ParsedMessage(text, "bot", response_filled, response_template))
-                else:
-                    convo.append(ParsedMessage("I don't understand", "bot", None, None))
+                convo.append(ParsedMessage("I don't understand", "bot", None, None))
         
         return convo
     
@@ -160,10 +156,6 @@ class Bot(object):
             files = ['weather_addon.json']
             b = Bot([json.load(open(filename)) for filename in files])
             return b
-    
-    def convo_meets_condition(self, convo, condition):
-        if condition == None:
-            return True
 
 _last_message_id = 0
 
@@ -171,22 +163,22 @@ class TemplateMessage(object):
     def __init__(self, text, sender, run_function=None):
         self.text = text
         self.sender = sender
-        self.conditional_children = [] # [(condition, child)] (condition=None always passes)
-        self.conditional_parents = [] # [(condition, parent)] (condition=None always passes)
+        self.parents = []
+        self.children = []
         self.run_function = run_function
         global _last_message_id
         self.id = str(_last_message_id + 1)
         _last_message_id += 1
         self.examples = [parse_example.parse_example_to_phrase(self.id, text)]
     
-    def add_parent(self, parent, condition=None):
-        parent.conditional_children.append((condition, self))
-        self.conditional_parents.append((condition, parent))
+    def add_parent(self, parent):
+        parent.children.append(self)
+        self.parents.append(parent)
     
     def required_fields(self):
         # the fields that the user has sent us by now
         def intersection_of_sets(sets): return reduce(lambda a,b: a & b, sets, set())
-        reqs = intersection_of_sets([p.required_fields() for condition, p in self.conditional_parents])
+        reqs = intersection_of_sets([p.required_fields() for p in self.parents])
         if self.sender != 'bot':
             reqs = reqs | intersection_of_sets([set(e.tags().keys()) for e in self.examples])
         return reqs
@@ -209,6 +201,5 @@ class ParsedMessage(object):
 
 if __name__ == '__main__':
     files = ['polite.json', 'weather_addon.json']
-    # files = ['polite.json', 'weather_addon.json', 'whereami.json']
     b = Bot([json.load(open(filename)) for filename in files])
     b.interact()
