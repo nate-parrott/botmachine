@@ -27,40 +27,50 @@ class Bot(object):
                 self.load_message_thread(t['messages'], True, [])
             self._current_addon = None
     
-    def load_message_thread(self, thread, assume_sender_is_user, parent_messages, only_enter_if_missing_field=None):
+    def load_message_thread(self, thread, assume_sender_is_user, parent_messages, condition=None):
         for item in thread:
             if isinstance(item, list):
                 # branch:
                 final_messages = []
                 for branch in item:
-                    outbound_messages, outbound_assume_sender_is_user = self.load_message_thread(branch['messages'], assume_sender_is_user, parent_messages, only_enter_if_missing_field)
+                    outbound_messages, outbound_assume_sender_is_user = self.load_message_thread(branch['messages'], assume_sender_is_user, parent_messages, condition)
                     final_messages += outbound_messages
                     assume_sender_is_user = outbound_assume_sender_is_user
                 parent_messages = final_messages
                 only_enter_if_missing_field = None
-            elif 'if_missing_field' in item:
-                branch_parent_messages, _ = self.load_message_thread(item['messages'], assume_sender_is_user, parent_messages, only_enter_if_missing_field=item['if_missing_field'])
-                parent_messages += branch_parent_messages
-            else:            
-                sender = item.get('sender', 'user' if assume_sender_is_user else 'bot')
-                run_function = None
-                if 'code' in item:
-                    run_function = getattr(self._current_addon, item['code'])
-                template_msg = TemplateMessage(item.get('text', ''), sender, run_function)
-                template_msg.only_enter_if_missing_field = only_enter_if_missing_field
-                self.message_templates[template_msg.id] = template_msg
-                
-                if len(parent_messages) == 0:
-                    self.initial_message_templates.append(template_msg)
+            else:
+                child_condition = self.condition_from_dict(item)
+                if child_condition:
+                    branch_parent_messages, _ = self.load_message_thread(item['messages'], assume_sender_is_user, parent_messages, condition=child_condition)
+                    parent_messages += branch_parent_messages
                 else:
-                    for parent in parent_messages:
-                        template_msg.add_parent(parent)
+                    sender = item.get('sender', 'user' if assume_sender_is_user else 'bot')
+                    run_function = None
+                    if 'code' in item:
+                        run_function = getattr(self._current_addon, item['code'])
+                    template_msg = TemplateMessage(item.get('text', ''), sender, run_function, condition)
+                    self.message_templates[template_msg.id] = template_msg
+                
+                    if len(parent_messages) == 0:
+                        self.initial_message_templates.append(template_msg)
+                    else:
+                        for parent in parent_messages:
+                            template_msg.add_parent(parent)
                             
-                assume_sender_is_user = sender != 'user'  
-                parent_messages = [template_msg]
-                only_enter_if_missing_field = None
+                    assume_sender_is_user = sender != 'user'  
+                    parent_messages = [template_msg]
+                    only_enter_if_missing_field = None
         
         return parent_messages, assume_sender_is_user
+    
+    def condition_from_dict(self, item):
+        if 'if_missing_field' in item:
+            field = item['if_missing_field']
+            def fn(convo):
+                fields = self.fields_from_convo(convo)
+                return field not in fields
+            return fn
+        return None
     
     def interact(self):
         convo = []
@@ -87,7 +97,7 @@ class Bot(object):
         # which message is this in response to? it's the most recent parseable message with a different sender
         prompt_messages = [m for m in convo if m.parse and m.sender != sender]
         if len(prompt_messages) > 0:
-            for child in prompt_messages[-1].template.applicable_children(self, convo):
+            for child in prompt_messages[-1].template.applicable_children(convo):
                 intent_bonuses[child.id] = SUBSEQUENT_MESSAGE_BONUS
         
         # apply penalty to parses that have fields that aren't currently present:
@@ -121,7 +131,7 @@ class Bot(object):
             if template:
                 # score responses:
                 fields_present = set(self.fields_from_convo(convo).keys())
-                response_templates = template.children
+                response_templates = template.applicable_children(convo)
                 def score_response(response):
                     fields_to_fill = response.fields_to_fill()
                     unfilled_fields = fields_to_fill - fields_present
@@ -166,37 +176,34 @@ class Bot(object):
 _last_message_id = 0
 
 class TemplateMessage(object):
-    def __init__(self, text, sender, run_function=None):
+    def __init__(self, text, sender, run_function=None, condition=None):
         self.text = text
         self.sender = sender
         self.parents = []
         self.children = []
-        self.only_enter_if_missing_field = None
+        self.condition = condition # a function that takes the convo as input
         self.run_function = run_function
         global _last_message_id
         self.id = str(_last_message_id + 1)
         _last_message_id += 1
         self.examples = [parse_example.parse_example_to_phrase(self.id, text)]
     
-    def applicable_children(self, bot, convo):
-        fields = bot.fields_from_convo(convo)
-        children_targeted_towards_missing_fields = []
-        untargeted = []
+    def applicable_children(self, convo):
+        unconditioned = []
         for child in self.children:
-            if child.only_enter_if_missing_field and child.only_enter_if_missing_field not in fields:
-                children_targeted_towards_missing_fields.append(child)
+            if child.condition:
+                if child.condition(convo):
+                    return [child]
             else:
-                untargeted.append(child)
-        if children_targeted_towards_missing_fields:
-            return children_targeted_towards_missing_fields
-        else:
-            return untargeted
+                unconditioned.append(child)
+        return unconditioned
     
     def add_parent(self, parent):
         parent.children.append(self)
         self.parents.append(parent)
     
     def required_fields(self):
+        # TODO: predict required fields if we have parent nodes conditioned on getting a specific field
         # the fields that the user has sent us by now
         def intersection_of_sets(sets): return reduce(lambda a,b: a & b, sets, set())
         reqs = intersection_of_sets([p.required_fields() for p in self.parents])

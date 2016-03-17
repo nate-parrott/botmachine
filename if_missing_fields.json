@@ -9,6 +9,14 @@
 				]},
 				{"sender": "user", "text": "You're in location(college hill) !"}
 			]
+		},
+		{
+			"messages": [
+				{"text": "test multiple fields", "sender": "user"},
+				{"if_missing_field": "field1", "messages": [{"text": "field 1?"}, {"text": "field 1 is field1(one)"}]},
+				{"if_missing_field": "field2", "messages": [{"text": "field 2?"}, {"text": "field 2 is field2(two)"}]},
+				{"sender": "bot", "text": "field 1 is field1(1) and field2 is field2(2) !"}
+			]
 		}
 	]
 }
