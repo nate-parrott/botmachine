@@ -8,6 +8,9 @@ import re
 from termcolor import colored
 import importlib
 
+# TODO: give a bonus to previously traversed messages
+# TODO: give a bonus to messages with similar fields
+
 SUBSEQUENT_MESSAGE_BONUS = 10
 INITIAL_MESSAGE_BONUS = 7
 NULL_BONUS = 11
@@ -20,23 +23,29 @@ class Bot(object):
     def __init__(self, json_docs):
         self.initial_message_templates = []
         self.message_templates = {}
+        
         for doc in json_docs:
             if 'addon_module' in doc:
                 self._current_addon = importlib.import_module(doc['addon_module']).Addon()
             for t in doc['transcripts']:
                 self.load_message_thread(t['messages'], True, [])
             self._current_addon = None
+        
+        self.bots_for_names = {}
+        self.convos_with_named_bots = defaultdict(list)
+        self.log_name = 'bot'
     
     def load_message_thread(self, thread, assume_sender_is_user, parent_messages, condition=None):
         for item in thread:
             if isinstance(item, list):
                 # branch:
                 final_messages = []
+                outbound_assume_sender_is_user = assume_sender_is_user
                 for branch in item:
                     outbound_messages, outbound_assume_sender_is_user = self.load_message_thread(branch['messages'], assume_sender_is_user, parent_messages, condition)
                     final_messages += outbound_messages
-                    assume_sender_is_user = outbound_assume_sender_is_user
                 parent_messages = final_messages
+                assume_sender_is_user = outbound_assume_sender_is_user
                 only_enter_if_missing_field = None
             else:
                 child_condition = self.condition_from_dict(item)
@@ -72,20 +81,33 @@ class Bot(object):
             return fn
         return None
     
+    def log(self, *args):
+        print ' [{0}]'.format(self.log_name), ", ".join(map(str, args))
+    
     def interact(self):
         convo = []
         while True:
             text = raw_input(" > ")
             if text == '': break
-            parse = self.parse_message(convo, text, 'user')
-            convo.append(parse)
-            print "Parsed as:", parse
             convo_len = len(convo)
-            # print " Other examples of this:", u"|".join([x.text() for x in self.examples_for_message_ids[parse.message_id]])
-            convo = self.respond(convo)
-            for message in convo[convo_len:]:
+            self.send_message_and_get_immediate_response(convo, text)
+            for message in convo[convo_len+1:]:
                 color = 'blue' if message.sender == 'bot' else 'red'
                 print colored(message.text, color)
+    
+    def send_message_and_get_immediate_response(self, convo, text):
+        parse = self.parse_message(convo, text, 'user')
+        convo.append(parse)
+        self.log("Parsed as:", parse)
+        convo_len = len(convo)
+        # print " Other examples of this:", u"|".join([x.text() for x in self.examples_for_message_ids[parse.message_id]])
+        self.respond(convo)
+        
+        new_messages = convo[convo_len:]
+        responses = [msg for msg in new_messages if msg.sender == 'bot' and msg.text != '' and msg.text[0] != '@']
+        if len(responses) != 1:
+            self.log("WARNING: bot returned {0} direct responses; expected 1".format(len(responses)))
+        return responses[0] if len(responses) else response
     
     def parse_message(self, convo, text, sender):
         # create message-matching bonuses:
@@ -94,8 +116,8 @@ class Bot(object):
         for template in self.initial_message_templates:
             intent_bonuses[template.id] = INITIAL_MESSAGE_BONUS
         
-        # which message is this in response to? it's the most recent parseable message with a different sender
-        prompt_messages = [m for m in convo if m.parse and m.sender != sender]
+        # which message is this in response to? it's the most recent parseable message sent by the bot
+        prompt_messages = [m for m in convo if m.parse and m.sender == 'bot']
         if len(prompt_messages) > 0:
             for child in prompt_messages[-1].template.applicable_children(convo):
                 intent_bonuses[child.id] = SUBSEQUENT_MESSAGE_BONUS
@@ -121,43 +143,54 @@ class Bot(object):
         return msg
     
     def respond(self, convo):
-        convo = convo[:]
-        
-        while convo[-1].sender != 'bot':
+        # appends responses to convo        
+        while convo[-1].sender != 'bot' or convo[-1].text[0] == '@':
             # todo: support scenarios where the bot talks first
-            template = convo[-1].template
-            response_template = None
-        
-            if template:
-                # score responses:
-                fields_present = set(self.fields_from_convo(convo).keys())
-                response_templates = template.applicable_children(convo)
-                def score_response(response):
-                    fields_to_fill = response.fields_to_fill()
-                    unfilled_fields = fields_to_fill - fields_present
-                    filled_fields = fields_to_fill & fields_present
-                    return -len(unfilled_fields), len(filled_fields)
-                # select all the highest-scoring responses, and collect all their examples:
-                best_score = max(map(score_response, response_templates))
-                response_templates = [t for t in response_templates if score_response(t) == best_score]
-                response_template = random.choice(response_templates)
-        
-            if response_template:
-                fields = self.fields_from_convo(convo)
-                if response_template.run_function:
-                    child_idx, additional_fields = response_template.run_function(fields)
-                    for k,v in additional_fields.iteritems():
-                        fields[k] = v
-                    response_template = response_template.children[child_idx]
             
-                response_example = random.choice(response_template.examples)
-                response_filled = response_example.fill_in_fields(fields)
-                text = response_filled.text()
-                convo.append(ParsedMessage(text, "bot", response_filled, response_template))
+            if convo[-1].sender == 'bot' and convo[-1].text[0] == '@':
+                bot_name = convo[-1].text.split(' ')[0][1:]
+                bot_prompt = convo[-1].text[convo[-1].text.index(' ')+1:]
+                # the bot just messaged another bot:
+                other_bot = self.bot_with_name(bot_name)
+                self.log("Asking", convo[-1].text)
+                other_bot_response = other_bot.send_message_and_get_immediate_response(self.convos_with_named_bots[bot_name], bot_prompt)
+                if other_bot_response:
+                    convo.append(self.parse_message(convo, other_bot_response.text, bot_name))
+                else:
+                    self.log("Error: asked @{0}, got no response".format(bot_name))
+                    break
             else:
-                convo.append(ParsedMessage("I don't understand", "bot", None, None))
+                template = convo[-1].template
+                response_template = None
+            
+                if template:
+                    # score responses:
+                    fields_present = set(self.fields_from_convo(convo).keys())
+                    response_templates = template.applicable_children(convo)
+                    def score_response(response):
+                        fields_to_fill = response.fields_to_fill()
+                        unfilled_fields = fields_to_fill - fields_present
+                        filled_fields = fields_to_fill & fields_present
+                        return -len(unfilled_fields), len(filled_fields)
+                    # select all the highest-scoring responses, and collect all their examples:
+                    best_score = max(map(score_response, response_templates))
+                    response_templates = [t for t in response_templates if score_response(t) == best_score]
+                    response_template = random.choice(response_templates)
         
-        return convo
+                if response_template:
+                    fields = self.fields_from_convo(convo)
+                    if response_template.run_function:
+                        child_idx, additional_fields = response_template.run_function(fields)
+                        for k,v in additional_fields.iteritems():
+                            fields[k] = v
+                        response_template = response_template.children[child_idx]
+            
+                    response_example = random.choice(response_template.examples)
+                    response_filled = response_example.fill_in_fields(fields)
+                    text = response_filled.text()
+                    convo.append(ParsedMessage(text, "bot", response_filled, response_template))
+                else:
+                    convo.append(ParsedMessage("I don't understand", "bot", None, None))        
     
     def fields_from_convo(self, convo):
         fields = {}
@@ -168,10 +201,17 @@ class Bot(object):
         return fields
     
     def bot_with_name(self, name):
-        if name == 'weather':
+        if name not in self.bots_for_names:
+            self.bots_for_names[name] = self._bot_with_name(name) 
+            self.bots_for_names[name].log_name = name   
+        return self.bots_for_names[name]
+    
+    def _bot_with_name(self, name):
+        if name == 'weatherbot':
             files = ['weather_addon.json']
             b = Bot([json.load(open(filename)) for filename in files])
             return b
+        print "No bot named", name
 
 _last_message_id = 0
 
@@ -203,8 +243,9 @@ class TemplateMessage(object):
         self.parents.append(parent)
     
     def required_fields(self):
-        # TODO: predict required fields if we have parent nodes conditioned on getting a specific field
         # the fields that the user has sent us by now
+        
+        # TODO: predict required fields if we have parent nodes conditioned on getting a specific field
         def intersection_of_sets(sets): return reduce(lambda a,b: a & b, sets, set())
         reqs = intersection_of_sets([p.required_fields() for p in self.parents])
         if self.sender != 'bot':
@@ -228,6 +269,8 @@ class ParsedMessage(object):
         return u"ParsedMessage({0}: {1} -- {2})".format(self.sender, self.parse, self.template)
 
 if __name__ == '__main__':
-    files = ['polite.json', 'weather_addon.json', 'if_missing_fields.json']
+    # files = ['weather_addon.json']
+    files = ['polite.json', 'if_missing_fields.json', 'ask_weather.json']
     b = Bot([json.load(open(filename)) for filename in files])
+    # b.bot_with_name('weatherbot').interact()
     b.interact()

@@ -51,6 +51,9 @@
 											"messages": [{"text": "i'm good"}, {"text": "great! me too."}]
 										},
 										{
+											"messages": [{"text": "i'm okay"}, {"text": "cool."}]
+										},
+										{
 											"messages": [{"text": "i'm bad"}, {"text": "Sorry to hear that!"}]
 										},
 										{

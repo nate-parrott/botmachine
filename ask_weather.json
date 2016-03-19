@@ -1,0 +1,10 @@
+{
+	"transcripts": [
+		{"messages": [
+			{"sender": "user", "text": "how's the weather?"},
+			{"sender": "bot", "text": "@weatherbot how's the weather in new york?"},
+			{"sender": "weatherbot", "text": "location(new york) weather is temperature(59) degrees and weather(sunny)"},
+			{"sender": "bot", "text": "it's weather(rainy)"}
+		]}
+	]
+}
