@@ -13,7 +13,7 @@ import importlib
 
 SUBSEQUENT_MESSAGE_BONUS = 10
 INITIAL_MESSAGE_BONUS = 7
-NULL_BONUS = 11
+NULL_BONUS = 9
 MISSING_FIELDS_BONUS = 0.5
 
 def chain(lists):
@@ -182,7 +182,10 @@ class Bot(object):
                     if response_template.run_function:
                         child_idx, additional_fields = response_template.run_function(fields)
                         for k,v in additional_fields.iteritems():
-                            fields[k] = v
+                            if v is None:
+                                if k in fields: del fields[k]
+                            else:
+                                fields[k] = v
                         response_template = response_template.children[child_idx]
             
                     response_example = random.choice(response_template.examples)
@@ -270,7 +273,8 @@ class ParsedMessage(object):
 
 if __name__ == '__main__':
     # files = ['weather_addon.json']
-    files = ['polite.json', 'if_missing_fields.json', 'ask_weather.json']
+    # files = ['polite.json', 'if_missing_fields.json', 'ask_weather.json']
+    files = ['polite.json', 'lookup_addon.json']
     b = Bot([json.load(open(filename)) for filename in files])
     # b.bot_with_name('weatherbot').interact()
     b.interact()

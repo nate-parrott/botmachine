@@ -95,7 +95,7 @@ class Phrase(object):
                 parts.append(item[1])
             else:
                 parts.append(item)
-        return u" ".join(parts)
+        return u" ".join(map(unicode, parts))
     
     def fill_in_fields(self, fields):
         p = copy.deepcopy(self)

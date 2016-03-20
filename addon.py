@@ -1,5 +1,5 @@
 
 
-class Addon(object):
+class BaseAddon(object):
     pass
 

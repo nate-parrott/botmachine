@@ -1,6 +1,6 @@
-from addon import Addon
+from addon import BaseAddon
 
-class Addon(object):
+class Addon(BaseAddon):
     def weather(self, fields):
         if 'location' in fields:
             return 0, {"weather_conditions": "sunny", "temperature": "59"}

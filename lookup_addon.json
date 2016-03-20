@@ -1,0 +1,21 @@
+{
+	"addon_module": "lookup_addon",
+	"transcripts": [
+		{
+			"messages": [
+				[
+					{"messages": [{"text": "what is the ~lookup_field(capital) where ~query_field(names) predicate(contains) ~query_value(val) in ~table(countries) ?"}]},
+					{"messages": [{"text": "what is the ~lookup_field(capital) of the entry from ~table(countries) where ~query_field(capital) predicate(is) ~query_value(New York) ?"}]},
+					{"messages": [{"text": "what are the ~lookup_field(borders) of the item from ~table(countries) where ~query_field(capital) predicate(is) ~query_value(New York)"}]},
+					{"messages": [{"text": "get ~lookup_field(borders) in ~table(countries) where ~table(capital) predicate(equals) ~query_value(Vienna)?"}]}
+				],
+				{"code": "lookup_field"},
+				[
+					{"messages": [{"text": "~lookup_value(_)"}]},
+					{"messages": [{"text": "That data set wasn't found."}]},
+					{"messages": [{"text": "Nothing matching that criteria was found."}]}
+				]
+			]
+		}
+	]
+}
