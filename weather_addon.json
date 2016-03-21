@@ -1,4 +1,5 @@
 {
+	"name": "weather_addon",
 	"addon_module": "weather_addon",
 	"transcripts": [
 		{
@@ -18,7 +19,7 @@
 					{"messages": [{"sender": "bot", "text": "location(new york) weather is temperature(77) degrees and weather_conditions(sunny)"}]},
 					{"messages": [
 						{"sender": "bot", "text": "I'm not sure where you are."},
-						{"text": "location(boston, ma)"},
+						[{"messages": [{"text": "location(boston, ma)"}]}, {"messages": [{"text": "i'm in location(boston, ma)"}]}],
 						{"code": "weather", "text": ""},
 						[{"messages": [{"sender": "bot", "text": "location(new york) weather is temperature(77) degrees and weather_conditions(sunny)"}]}]
 						]}

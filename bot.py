@@ -7,6 +7,9 @@ import commanding
 import re
 from termcolor import colored
 import importlib
+import datetime
+import pickle
+import StringIO
 
 # TODO: give a bonus to previously traversed messages
 # TODO: give a bonus to messages with similar fields
@@ -23,6 +26,7 @@ class Bot(object):
     def __init__(self, json_docs):
         self.initial_message_templates = []
         self.message_templates = {}
+        self._last_message_id = 0
         
         for doc in json_docs:
             if 'addon_module' in doc:
@@ -32,7 +36,7 @@ class Bot(object):
             self._current_addon = None
         
         self.bots_for_names = {}
-        self.convos_with_named_bots = defaultdict(list)
+        self.convos_with_named_bots = defaultdict(Convo)
         self.log_name = 'bot'
     
     def load_message_thread(self, thread, assume_sender_is_user, parent_messages, condition=None):
@@ -57,7 +61,9 @@ class Bot(object):
                     run_function = None
                     if 'code' in item:
                         run_function = getattr(self._current_addon, item['code'])
-                    template_msg = TemplateMessage(item.get('text', ''), sender, run_function, condition)
+                    id = str(self._last_message_id + 1)
+                    self._last_message_id += 1
+                    template_msg = TemplateMessage(item.get('text', ''), sender, item.get('id', id), run_function, condition)
                     self.message_templates[template_msg.id] = template_msg
                 
                     if len(parent_messages) == 0:
@@ -85,25 +91,25 @@ class Bot(object):
         print ' [{0}]'.format(self.log_name), ", ".join(map(str, args))
     
     def interact(self):
-        convo = []
+        convo = Convo()
         while True:
             text = raw_input(" > ")
             if text == '': break
-            convo_len = len(convo)
+            convo_len = len(convo.messages)
             self.send_message_and_get_immediate_response(convo, text)
-            for message in convo[convo_len+1:]:
+            for message in convo.messages[convo_len+1:]:
                 color = 'blue' if message.sender == 'bot' else 'red'
                 print colored(message.text, color)
     
     def send_message_and_get_immediate_response(self, convo, text):
         parse = self.parse_message(convo, text, 'user')
-        convo.append(parse)
+        convo.append_message(parse)
         self.log("Parsed as:", parse)
-        convo_len = len(convo)
+        convo_len = len(convo.messages)
         # print " Other examples of this:", u"|".join([x.text() for x in self.examples_for_message_ids[parse.message_id]])
         self.respond(convo)
         
-        new_messages = convo[convo_len:]
+        new_messages = convo.messages[convo_len:]
         responses = [msg for msg in new_messages if msg.sender == 'bot' and msg.text != '' and msg.text[0] != '@']
         if len(responses) != 1:
             self.log("WARNING: bot returned {0} direct responses; expected 1".format(len(responses)))
@@ -117,13 +123,13 @@ class Bot(object):
             intent_bonuses[template.id] = INITIAL_MESSAGE_BONUS
         
         # which message is this in response to? it's the most recent parseable message sent by the bot
-        prompt_messages = [m for m in convo if m.parse and m.sender == 'bot']
+        prompt_messages = [m for m in convo.messages if m.parse and m.sender == 'bot']
         if len(prompt_messages) > 0:
             for child in prompt_messages[-1].template.applicable_children(convo):
                 intent_bonuses[child.id] = SUBSEQUENT_MESSAGE_BONUS
         
         # apply penalty to parses that have fields that aren't currently present:
-        fields = self.fields_from_convo(convo)
+        fields = convo.fields
         for template in self.message_templates.itervalues():
             missing_fields = [field for field in template.required_fields() if field not in fields]
             if len(missing_fields) > 0:
@@ -144,28 +150,28 @@ class Bot(object):
     
     def respond(self, convo):
         # appends responses to convo        
-        while convo[-1].sender != 'bot' or convo[-1].text[0] == '@':
+        while convo.messages[-1].sender != 'bot' or convo.messages[-1].text[0] == '@':
             # todo: support scenarios where the bot talks first
             
-            if convo[-1].sender == 'bot' and convo[-1].text[0] == '@':
-                bot_name = convo[-1].text.split(' ')[0][1:]
-                bot_prompt = convo[-1].text[convo[-1].text.index(' ')+1:]
+            if convo.messages[-1].sender == 'bot' and convo.messages[-1].text[0] == '@':
+                bot_name = convo.messages[-1].text.split(' ')[0][1:]
+                bot_prompt = convo.messages[-1].text[convo.messages[-1].text.index(' ')+1:]
                 # the bot just messaged another bot:
                 other_bot = self.bot_with_name(bot_name)
-                self.log("Asking", convo[-1].text)
+                self.log("Asking", convo.messages[-1].text)
                 other_bot_response = other_bot.send_message_and_get_immediate_response(self.convos_with_named_bots[bot_name], bot_prompt)
                 if other_bot_response:
-                    convo.append(self.parse_message(convo, other_bot_response.text, bot_name))
+                    convo.append_message(self.parse_message(convo, other_bot_response.text, bot_name))
                 else:
                     self.log("Error: asked @{0}, got no response".format(bot_name))
                     break
             else:
-                template = convo[-1].template
+                template = convo.messages[-1].template
                 response_template = None
             
                 if template:
                     # score responses:
-                    fields_present = set(self.fields_from_convo(convo).keys())
+                    fields_present = set(convo.fields.keys())
                     response_templates = template.applicable_children(convo)
                     def score_response(response):
                         fields_to_fill = response.fields_to_fill()
@@ -178,30 +184,18 @@ class Bot(object):
                     response_template = random.choice(response_templates)
         
                 if response_template:
-                    fields = self.fields_from_convo(convo)
+                    fields = convo.fields
                     if response_template.run_function:
                         child_idx, additional_fields = response_template.run_function(fields)
-                        for k,v in additional_fields.iteritems():
-                            if v is None:
-                                if k in fields: del fields[k]
-                            else:
-                                fields[k] = v
+                        convo.import_fields(additional_fields)
                         response_template = response_template.children[child_idx]
-            
+                    
                     response_example = random.choice(response_template.examples)
                     response_filled = response_example.fill_in_fields(fields)
                     text = response_filled.text()
-                    convo.append(ParsedMessage(text, "bot", response_filled, response_template))
+                    convo.append_message(ParsedMessage(text, "bot", response_filled, response_template))
                 else:
-                    convo.append(ParsedMessage("I don't understand", "bot", None, None))        
-    
-    def fields_from_convo(self, convo):
-        fields = {}
-        for message in convo:
-            if message.parse:
-                for k,v in message.parse.tags().iteritems():
-                    fields[k] = v
-        return fields
+                    convo.append_message(ParsedMessage("I don't understand", "bot", None, None))        
     
     def bot_with_name(self, name):
         if name not in self.bots_for_names:
@@ -215,20 +209,53 @@ class Bot(object):
             b = Bot([json.load(open(filename)) for filename in files])
             return b
         print "No bot named", name
+    
+    def serialize_convo(self, convo):
+        fields = self.fields_from_convo(convo)
+        def persistent_id(obj):
+            if isinstance(obj, TemplateMessage):
+                return obj.id
+        data = StringIO.StringIO()
+        p = pickle.Pickler(data)
+        p.persistent_id = object_id # TODO: trim the convo length to ~ 20 or so
+        p.dump(convo)
+        return data.getvalue()
+    
+    def deserialize_convo(self, data):
+        f = StringIO.StringIO(data)
+        p = pickle.Unpickler(f)
+        def persistent_load(id):
+            return self.message_templates.get(id)
+        p.persistent_load = persistent_load
+        return p.load()
 
-_last_message_id = 0
+class Convo(object):
+    def __init__(self):
+        self.messages = []
+        self.fields = {}
+    
+    def append_message(self, message):
+        self.messages.append(message)
+        if message.parse:
+            self.import_fields(message.parse.tags())
+    
+    def import_fields(self, fields):
+        for k,v in fields.iteritems():
+            if v is None:
+                if k in self.fields:
+                    del self.fields[k]
+            else:
+                self.fields[k] = v
 
 class TemplateMessage(object):
-    def __init__(self, text, sender, run_function=None, condition=None):
+    def __init__(self, text, sender, id, run_function=None, condition=None):
         self.text = text
         self.sender = sender
         self.parents = []
         self.children = []
         self.condition = condition # a function that takes the convo as input
         self.run_function = run_function
-        global _last_message_id
-        self.id = str(_last_message_id + 1)
-        _last_message_id += 1
+        self.id = id
         self.examples = [parse_example.parse_example_to_phrase(self.id, text)]
     
     def applicable_children(self, convo):
@@ -267,14 +294,15 @@ class ParsedMessage(object):
         self.sender = sender
         self.parse = parse
         self.template = template
+        self.time = datetime.datetime.now()
     
     def __repr__(self):
         return u"ParsedMessage({0}: {1} -- {2})".format(self.sender, self.parse, self.template)
 
 if __name__ == '__main__':
-    # files = ['weather_addon.json']
+    files = ['weather_addon.json']
     # files = ['polite.json', 'if_missing_fields.json', 'ask_weather.json']
-    files = ['polite.json', 'lookup_addon.json']
+    # files = ['polite.json', 'lookup_addon.json']
     b = Bot([json.load(open(filename)) for filename in files])
     # b.bot_with_name('weatherbot').interact()
     b.interact()

@@ -1,4 +1,5 @@
 {
+	"name": "lookup_addon",
 	"addon_module": "lookup_addon",
 	"transcripts": [
 		{

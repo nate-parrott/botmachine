@@ -1,4 +1,5 @@
 {
+	"name": "ask_weather",
 	"transcripts": [
 		{"messages": [
 			{"sender": "user", "text": "how's the weather?"},
