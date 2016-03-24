@@ -91,8 +91,9 @@ class Bot(object):
         print ' [{0}]'.format(self.log_name), ", ".join(map(str, args))
     
     def interact(self):
-        convo = Convo()
+        convo_data = self.serialize_convo(Convo())
         while True:
+            convo = self.deserialize_convo(convo_data)
             text = raw_input(" > ")
             if text == '': break
             convo_len = len(convo.messages)
@@ -100,6 +101,7 @@ class Bot(object):
             for message in convo.messages[convo_len+1:]:
                 color = 'blue' if message.sender == 'bot' else 'red'
                 print colored(message.text, color)
+            convo_data = self.serialize_convo(convo)
     
     def send_message_and_get_immediate_response(self, convo, text):
         parse = self.parse_message(convo, text, 'user')
@@ -211,13 +213,12 @@ class Bot(object):
         print "No bot named", name
     
     def serialize_convo(self, convo):
-        fields = self.fields_from_convo(convo)
         def persistent_id(obj):
             if isinstance(obj, TemplateMessage):
                 return obj.id
         data = StringIO.StringIO()
         p = pickle.Pickler(data)
-        p.persistent_id = object_id # TODO: trim the convo length to ~ 20 or so
+        p.persistent_id = persistent_id # TODO: trim the convo length to ~ 20 or so
         p.dump(convo)
         return data.getvalue()
     
@@ -300,8 +301,8 @@ class ParsedMessage(object):
         return u"ParsedMessage({0}: {1} -- {2})".format(self.sender, self.parse, self.template)
 
 if __name__ == '__main__':
-    files = ['weather_addon.json']
-    # files = ['polite.json', 'if_missing_fields.json', 'ask_weather.json']
+    # files = ['weather_addon.json']
+    files = ['polite.json', 'if_missing_fields.json', 'ask_weather.json']
     # files = ['polite.json', 'lookup_addon.json']
     b = Bot([json.load(open(filename)) for filename in files])
     # b.bot_with_name('weatherbot').interact()
